@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Level Maker</title>
+<style>
+  :root { --ink: #1d2340; --panel: #ffffffee; --accent: #ff7a3d; --good: #2fbf71; }
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: #8fd4ff; }
+  body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
+  .bar { position: fixed; left: 0; right: 0; display: flex; gap: 6px; align-items: center; padding: 6px max(8px, env(safe-area-inset-right)) 6px max(8px, env(safe-area-inset-left)); box-sizing: border-box; }
+  #top { top: 0; padding-top: max(6px, env(safe-area-inset-top)); background: linear-gradient(#ffffffd9, #ffffff99); }
+  #title { flex: 1; min-width: 0; height: 40px; border: 2px solid #1d234022; border-radius: 10px; padding: 0 10px; font: 700 16px system-ui, sans-serif; color: var(--ink); background: #fff; }
+  button { min-height: 44px; min-width: 44px; border: 0; border-radius: 12px; padding: 0 12px; font: 700 15px system-ui, sans-serif; cursor: pointer; color: var(--ink); background: #fff; box-shadow: 0 3px 0 #1d234033; }
+  button:active { transform: translateY(2px); box-shadow: 0 1px 0 #1d234033; }
+  button.primary { background: var(--accent); color: #fff; }
+  #palette { bottom: 0; justify-content: center; padding-bottom: max(8px, env(safe-area-inset-bottom)); background: linear-gradient(#ffffff99, #ffffffd9); }
+  #palette button { width: 48px; padding: 0; font-size: 20px; }
+  #palette button.on { background: var(--ink); color: #fff; }
+  #palette[hidden], #pad[hidden], #dlg[hidden] { display: none; }
+  .hud { position: fixed; pointer-events: none; font-weight: 700; text-shadow: 0 1px 0 #fff8; }
+  #hud { top: calc(max(6px, env(safe-area-inset-top)) + 58px); left: 12px; font-size: 18px; }
+  #hint { top: calc(max(6px, env(safe-area-inset-top)) + 88px); left: 12px; right: 12px; text-align: center; font-size: 15px; transition: opacity .6s; }
+  #net { right: 12px; top: calc(max(6px, env(safe-area-inset-top)) + 60px); font-size: 12px; opacity: .75; }
+  #toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 8px 14px; border-radius: 10px; font-weight: 700; opacity: 0; transition: opacity .3s; pointer-events: none; }
+  #pad { position: fixed; left: 0; right: 0; bottom: max(14px, env(safe-area-inset-bottom)); display: flex; justify-content: space-between; padding: 0 14px; pointer-events: none; }
+  #pad div { display: flex; gap: 12px; } #pad button { pointer-events: auto; width: 76px; height: 76px; border-radius: 50%; font-size: 26px; background: #ffffffb0; touch-action: none; }
+  #pad button.on { background: #ffd23f; }
+  #dlg { position: fixed; inset: 0; display: grid; place-items: center; background: #1d234066; }
+  .card { width: min(420px, 92vw); max-height: 84vh; overflow: auto; padding: 18px; border-radius: 18px; background: #fff; box-sizing: border-box; box-shadow: 0 10px 40px #0004; }
+  .card h2 { margin: 0 0 8px; font-size: 21px; } .card h3 { margin: 14px 0 6px; font-size: 14px; color: var(--accent); }
+  .card p { margin: 8px 0; } .card ol { margin: 0; padding-left: 24px; } .card li span { float: right; font-variant-numeric: tabular-nums; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; } .tabs button.on { background: var(--ink); color: #fff; }
+  .item { display: flex; gap: 6px; align-items: center; padding: 8px 0; border-bottom: 1px solid #1d234014; }
+  .item div { flex: 1; min-width: 0; } .item b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .item small { opacity: .65; }
+  .item button { padding: 0 10px; min-width: 44px; }
+  .row { display: flex; gap: 8px; margin-top: 12px; } .row > * { flex: 1; }
+  input.field { width: 100%; height: 44px; box-sizing: border-box; border: 2px solid #1d234022; border-radius: 10px; padding: 0 10px; font: 16px system-ui, sans-serif; margin: 4px 0; }
+  .err { color: #d6334a; font-weight: 700; min-height: 1.2em; }
+  @media (max-width: 560px) { #top .label { display: none; } }
+</style>
+<script src="https://cdn.multiplayeragent.com/sdk/mp.global.js"></script>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div class="bar" id="top">
+  <input id="title" maxlength="40" aria-label="Level name">
+  <button id="modeBtn" class="primary">▶<span class="label"> Play</span></button>
+  <button id="levelsBtn">📂<span class="label"> Levels</span></button>
+  <button id="saveBtn">💾<span class="label"> Save</span></button>
+  <button id="shareBtn">🔗<span class="label"> Share</span></button>
+</div>
+<div class="bar" id="palette" hidden></div>
+<div class="hud" id="hud"></div>
+<div class="hud" id="hint"></div>
+<div class="hud" id="net">Connecting…</div>
+<div id="pad" hidden><div><button data-k="left">◀</button><button data-k="right">▶</button></div><div><button data-k="jump">⤒</button></div></div>
+<div id="toast"></div>
+<div id="dlg" hidden><div class="card" id="card"></div></div>
+<script>
+/* ═══ LEVEL MAKER · a Multiplayer Agent starter ═══════════════════════════════════════
+ * Build a level, share it, play your friends' levels. Co-op, 1–8; bots run the level.
+ *
+ * WHERE THINGS ARE (search for the "── " headers):
+ *   CONFIG ........ level size, running and jumping, bots, saves
+ *   EXAMPLES ...... the three built-in levels (one string per row; the tile key is below)
+ *   CONNECTION .... MP_CONNECT, joining, the offline room, who is host
+ *   LEVEL (HOST) .. the shared level: one field per row, painted by intents
+ *   BOTS (HOST) ... runners that play the level when anyone presses Play
+ *   RUNNER ........ platformer physics (yours and the bots'), coins, spikes, the goal
+ *   EDITOR ........ tools, painting, panning
+ *   DRAW .......... sky, tiles, runners, other players' cursors, particles
+ *   SAVES & SHARING  drafts (player save), publish/browse/vote/report, claim, ?level= links
+ *   SCREENS ....... top bar, palette, dialogs, the level-clear card and its leaderboard
+ *   INPUT & LOOP .. keyboard, touch, the main loop
+ *
+ * HOW THE MULTIPLAYER WORKS (a relay room: no server code):
+ *   - The level lives in shared fields written only by the HOST: `r0`…`r13` (one string per
+ *     row, tile characters, never digits) and `lvl` {v, id, title, src}. `id` changes when a
+ *     new level is loaded, so every runner restarts; `v` only goes up.
+ *   - Everyone else sends intents: "paint" {cells: [[col, row, tile], …]}, "load" {rows,
+ *     title, src} and "meta" {title?, src?}. The host applies them and writes the rows. The
+ *     painter shows its own paint at once, then state catches up.
+ *   - Each player writes its OWN entity: `p` (packed JSON: in play your runner's x, y,
+ *     facing, animation; in edit your cursor) ~12 times a second, `hb` (heartbeat) once a
+ *     second, `n`/`c` (name, color) once.
+ *   - The HOST is the lowest sessionId among live players (heartbeat seen in the last 3s).
+ *     It also runs the bots (shared `bots`) while anyone is playing. A new host adopts it all.
+ *   - Saves: your drafts live in your player save (player.data, namespace CONFIG.saveNs).
+ *   - Sharing: player.content("levels") publishes (claimed players), lists top/new, votes
+ *     and reports. `?level=<id>` opens that level in its own room so friends play it together.
+ *   - Leaderboard "lvl-<level>": fastest clear of each shared or example level.
+ *   - ?attract plays offline: it paints a little course, then bots run it (the preview).
+ */
+
+// ── CONFIG ──────────────────────────────────────────────────────────────────────────
+const CONFIG = {
+  cols: 40, rows: 14,     // level size in tiles (the rows are r0…r13 in shared state)
+  run: 7,                 // running speed, tiles/s
+  jump: 18,               // jump speed, tiles/s (about 3 tiles high, 4 across)
+  gravity: 50, maxFall: 18,
+  coyote: 0.1, buffer: 0.12, // forgiving jumps: late off a ledge, early before landing (s)
+  seats: 3,               // bots run the level up to this many runners
+  sendMs: 80,             // how often your runner or cursor is sent
+  saveNs: "level-maker",  // your player save (drafts)
+  maxDrafts: 12,
+  autosaveMs: 15000,      // drafts save themselves this often while you edit
+  board: "lvl",           // leaderboard prefix: one board per level, "lvl-<id>"
+};
+// Tile key: . empty  # block  ^ spike  o coin  S start  G goal (letters and symbols, never digits)
+const TOOLS = [["move", "✋", "Move"], ["#", "■", "Block"], ["^", "▲", "Spike"], ["o", "●", "Coin"], ["S", "S", "Start"], ["G", "⚑", "Goal"], [".", "⌫", "Erase"]];
+const BOT_NAMES = ["Hopper", "Pip", "Dash", "Boing"];
+const COLORS = ["#ff5a5f", "#3d8bff", "#ffb627", "#2fbf71", "#a463f2", "#ff7ac6", "#13c4c4", "#ff8a3d"];
+
+// ── EXAMPLES ────────────────────────────────────────────────────────────────────────
+const EXAMPLES = [
+  { id: "ex1", title: "First Steps", rows: [
+    "........................................", "........................................", "........................................",
+    "........................................", "........................................", "........................................",
+    "........................................", ".................ooo....................", ".................####...................",
+    "............ooo.........................", "...........#####...........o.o..........", ".S.o..^^.o...........................G..",
+    "######################...######...######", "######################...######...######"] },
+  { id: "ex2", title: "Spike Valley", rows: [
+    "........................................", "........................................", "........................................",
+    "........................................", "........................................", "........................................",
+    "........................................", "........................................", "........o.o............o.o..............",
+    ".......#####..........#####.............", ".S...............o.o..........o.o....G..", "#####..........#####..........##########",
+    "#####^^^^^^^^^^#####^^^^^^^^^^##########", "########################################"] },
+  { id: "ex3", title: "Sky Stairs", rows: [
+    "........................................", "..................................o.o.G.", ".................................#######",
+    "............................o...........", "...........................###..........", "......................o.................",
+    ".....................###................", "................o.......................", "...............###......................",
+    "..........o.............................", ".........###............................", ".S.o....................................",
+    "######..................................", "######^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"] },
+];
+
+// ── CONNECTION ──────────────────────────────────────────────────────────────────────
+// The builder fills these in for this game. Downloaded from GitHub? Put your own pk_ key here.
+const MP_CONNECT = {
+  key: 'pk_REPLACE_ME',
+  room: 'level-maker',
+  endpoint: 'wss://live.multiplayeragent.com',
+  apiUrl: 'https://api.multiplayeragent.com',
+};
+const ATTRACT = new URLSearchParams(location.search).has("attract");
+const LINKED = (new URLSearchParams(location.search).get("level") || "").replace(/[^a-z0-9_-]/gi, "").slice(0, 40); // ?level=<id>
+
+/** Same shape as the SDK client, kept in this tab: offline play and ?attract. */
+function localRoom() {
+  const id = "local", state = { entities: { players: { [id]: {} } }, shared: {} }, subs = [];
+  let queued = false;
+  const emit = () => { if (!queued) { queued = true; queueMicrotask(() => { queued = false; subs.forEach((f) => f(state)); }); } };
+  const put = (o, k, v) => { if (typeof k === "object") Object.assign(o, k); else o[k] = v; emit(); };
+  return {
+    sessionId: id, state, offline: true,
+    me: { set: (k, v) => put(state.entities.players[id], k, v) },
+    setShared: (k, v) => put(state.shared, k, v),
+    onState: (f) => { subs.push(f); f(state); }, onJoin() {}, onLeave() {}, on() {}, send() {},
+    onDisconnect() {}, onReconnect() {}, leave: async () => {},
+  };
+}
+async function connect() {
+  if (ATTRACT || typeof MP === "undefined") return localRoom();
+  try {
+    // A shared level link gets a room of its own, so friends play it together without
+    // replacing the level everyone else is building.
+    const room = LINKED ? MP_CONNECT.room + "-" + LINKED : MP_CONNECT.room;
+    const mp = await Promise.race([MP.join({ ...MP_CONNECT, room }), new Promise((_, no) => setTimeout(() => no(new Error("timed out")), 10000))]);
+    window.mp = mp; // the builder calls window.mp.leave() when the page closes
+    return mp;
+  } catch (e) {
+    console.warn("Playing offline:", e && e.message);
+    return localRoom();
+  }
+}
+const parse = (v, fb) => { if (typeof v !== "string") return fb; try { return JSON.parse(v); } catch { return fb; } };
+const memo = new Map();
+/** A shared JSON field, parsed once per change (read-only: never mutate what this returns). */
+function shared(key, fallback) {
+  const raw = S.shared[key], m = memo.get(key);
+  if (m && m.raw === raw) return m.v;
+  const v = parse(raw, fallback); memo.set(key, { raw, v }); return v;
+}
+let net = null, S = { entities: { players: {} }, shared: {} };
+const seenHb = new Map();
+function livePlayers() {
+  const now = performance.now(), out = [];
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    const s = seenHb.get(id);
+    if (!s || s.hb !== p.hb) seenHb.set(id, { hb: p.hb, at: now });
+    if (id === net.sessionId || now - seenHb.get(id).at < 3000) out.push(id);
+  }
+  return out.sort();
+}
+const isHost = () => livePlayers()[0] === net.sessionId;
+
+// ── LEVEL (HOST) ────────────────────────────────────────────────────────────────────
+const COLS = CONFIG.cols, ROWS = CONFIG.rows;
+const host = { rows: null, last: null, dirty: new Set(), lastFlush: 0, wasHost: false, bots: new Map(), lastBots: 0, fetching: false };
+const pending = new Map(); // my paints not yet back from the host: "c,r" -> { t, at }
+/** Any rows from anywhere (a draft, a shared level) made safe: right size, known tiles, one start, one goal. */
+function cleanRows(rows) {
+  const out = Array.from({ length: ROWS }, (_, r) => String((rows && rows[r]) || "").replace(/[^.#^oSG]/g, ".").padEnd(COLS, ".").slice(0, COLS).split(""));
+  for (const t of ["S", "G"]) { let seen = false; out.forEach((row) => row.forEach((ch, c) => { if (ch === t) { if (seen) row[c] = "."; seen = true; } })); }
+  if (!out.some((row) => row.includes("S"))) { out[ROWS - 3][1] = "S"; out[ROWS - 2][1] = "#"; }
+  return out.map((row) => row.join(""));
+}
+/** The level meta as state has it, or the host's own newer write. */
+function meta() { const m = shared("lvl", null); return host.last && isHost() && (!m || host.last.v > m.v) ? host.last : m; }
+function writeMeta(m) { m = { ...m, v: (meta()?.v ?? 0) + 1 }; host.last = m; net.setShared("lvl", JSON.stringify(m)); return m; }
+const sharedRows = () => Array.from({ length: ROWS }, (_, r) => (typeof S.shared["r" + r] === "string" ? S.shared["r" + r] : ""));
+let curRows = Array(ROWS).fill(""); // the level as this client sees it, refreshed every frame
+function refreshRows() { curRows = isHost() && host.rows ? host.rows : sharedRows(); }
+const rowsNow = () => curRows;
+function tileAt(c, r) {
+  if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return ".";
+  const p = pending.size ? pending.get(c + "," + r) : null; if (p) return p.t;
+  return curRows[r][c] || ".";
+}
+function hostLoad(rows, title, src) {
+  host.rows = cleanRows(rows); curRows = host.rows;
+  host.rows.forEach((row, r) => net.setShared("r" + r, row)); // the world first…
+  writeMeta({ id: Math.random().toString(36).slice(2, 9), title: String(title || "Untitled").slice(0, 40), src: src || "" }); // …then the new id
+}
+function hostPaint(c, r, t) {
+  if (!host.rows || !(c >= 0 && c < COLS && r >= 0 && r < ROWS) || !/^[.#^oSG]$/.test(t)) return;
+  if (t === "S" || t === "G") host.rows.forEach((row, rr) => { const i = row.indexOf(t); if (i >= 0) { host.rows[rr] = row.slice(0, i) + "." + row.slice(i + 1); host.dirty.add(rr); } });
+  host.rows[r] = host.rows[r].slice(0, c) + t + host.rows[r].slice(c + 1); host.dirty.add(r);
+}
+function hostTick(dt, now) {
+  if (!host.wasHost) { host.wasHost = true; host.rows = meta() ? sharedRows().map((row) => row.padEnd(COLS, ".").slice(0, COLS)) : null; refreshRows(); host.bots.clear(); for (const b of shared("bots", [])) host.bots.set(b.i, { ...newRunner(), id: b.i, name: b.n, color: b.c, x: b.x, y: b.y }); }
+  if (!meta() && !host.fetching) { // a brand-new room: the linked level, or the first example
+    if (LINKED && player) { host.fetching = true; player.content("levels").get(LINKED).then((it) => hostLoad(it.data && it.data.rows, it.title + (it.authorName ? " by " + it.authorName : ""), it.id)).catch(() => { toast("Couldn't open that level"); hostLoad(EXAMPLES[0].rows, EXAMPLES[0].title, EXAMPLES[0].id); }); }
+    else hostLoad(ATTRACT ? ATTRACT_BASE : EXAMPLES[0].rows, ATTRACT ? "My Level" : EXAMPLES[0].title, ATTRACT ? "" : EXAMPLES[0].id);
+  }
+  if (host.dirty.size && now - host.lastFlush > 100) { host.lastFlush = now; for (const r of host.dirty) net.setShared("r" + r, host.rows[r]); host.dirty.clear(); }
+  botsTick(dt, now);
+}
+function applyIntent(type, m) {
+  if (!m || !host.rows) return;
+  if (type === "paint" && Array.isArray(m.cells)) for (const [c, r, t] of m.cells.slice(0, 200)) hostPaint(c | 0, r | 0, String(t));
+  if (type === "load" && Array.isArray(m.rows)) hostLoad(m.rows, m.title, String(m.src || "").slice(0, 40));
+  if (type === "meta" && meta()) { const cur = meta(); writeMeta({ ...cur, title: typeof m.title === "string" ? m.title.slice(0, 40) : cur.title, src: typeof m.src === "string" ? m.src.slice(0, 40) : cur.src }); }
+}
+/** Ask the host (or be the host) to do something to the level. */
+function ask(type, m) { if (isHost()) applyIntent(type, m); else net.send(type, m); }
+
+// ── BOTS (HOST) ─────────────────────────────────────────────────────────────────────
+function findTile(t) { const rows = rowsNow(); for (let r = 0; r < ROWS; r++) { const c = rows[r].indexOf(t); if (c >= 0) return { c, r }; } return null; }
+const startPos = () => { const s = findTile("S") || { c: 1, r: ROWS - 3 }; return { x: s.c + 0.5, y: s.r + 1 }; };
+function botsTick(dt, now) {
+  const playing = livePlayers().some((id) => modeOf(id) === "play");
+  const want = playing ? Math.max(0, CONFIG.seats - livePlayers().filter((id) => modeOf(id) === "play" && !(ATTRACT && id === net.sessionId)).length) : 0;
+  for (let i = 0; host.bots.size < want && i < 8; i++) if (!host.bots.has("b" + i)) host.bots.set("b" + i, { ...newRunner(), ...startPos(), id: "b" + i, name: BOT_NAMES[i % BOT_NAMES.length], color: COLORS[(i + 4) % COLORS.length], wait: 0.4 + i * 0.5 });
+  while (host.bots.size > want) host.bots.delete([...host.bots.keys()].pop());
+  const lv = meta()?.id;
+  for (const b of host.bots.values()) {
+    if (b.lv !== lv) Object.assign(b, newRunner(), startPos(), { lv, wait: Math.random() });
+    if ((b.wait -= dt) > 0) continue;
+    stepRunner(b, botInput(b, dt), dt);
+    if (b.dead && now > b.deadAt + 700) Object.assign(b, newRunner(), startPos(), { lv, wait: 0.3 });
+    if (b.done && now > b.doneAt + 1800) Object.assign(b, newRunner(), startPos(), { lv, wait: 0.5 + Math.random() });
+  }
+  if (now - host.lastBots > 100) { host.lastBots = now; net.setShared("bots", JSON.stringify(botList())); }
+}
+const botList = () => (isHost() ? [...host.bots.values()].map((b) => ({ i: b.id, n: b.name, c: b.color, x: +b.x.toFixed(2), y: +b.y.toFixed(2), f: b.f, a: animOf(b) })) : shared("bots", []));
+/** A bot's brain: run toward the goal, jump at walls, gaps and spikes, sometimes hesitate. */
+function botInput(b, dt) {
+  const g = findTile("G"), dir = g && g.c + 0.5 < b.x - 0.3 ? -1 : 1, row = Math.floor(b.y - 0.01);
+  const at = (k) => Math.floor(b.x + dir * k);
+  const wall = solid(at(0.7), row) || solid(at(0.7), Math.floor(b.y - HH + 0.05));
+  const below = (c) => { for (let r = row + 1; r <= row + 4 && r < ROWS; r++) { const t = tileAt(c, r); if (t === "#") return "ground"; if (t === "^") return "spike"; } return "pit"; };
+  const gap = below(at(0.9)) !== "ground" && below(at(1.6)) !== "ground"; // a step down is fine, a pit or spikes below is not
+  const spike = [0.8, 1.4, 2].some((k) => tileAt(at(k), row) === "^" || tileAt(at(k), row + 1) === "^");
+  const platform = g && g.r < row - 1 && [1, 2, 3].some((k) => solid(at(k), row - 2) && !solid(at(k), row - 3)); // a step up worth taking
+  b.stuck = Math.abs(b.vx) < 0.5 ? (b.stuck || 0) + dt : 0;
+  if (b.stuck > 1.5) { b.stuck = 0; b.back = 0.5; }
+  if (b.back > 0) { b.back -= dt; return { left: dir > 0, right: dir < 0, jump: true, held: true }; }
+  if (b.onGround && !b.wasGround) b.sloppy = Math.random() < 0.12; // now and then a bot isn't looking
+  b.wasGround = b.onGround;
+  const jump = b.onGround && (wall || (!b.sloppy && (gap || spike || platform)));
+  if (jump) { let top = row; while (top > 0 && solid(at(0.7), top)) top--; b.hopTo = wall && !gap && !spike ? top + 1 - 0.3 : -99; } // a step up only needs a hop
+  return { left: dir < 0, right: dir > 0, jump, held: b.y > b.hopTo };
+}
+
+// ── RUNNER ──────────────────────────────────────────────────────────────────────────
+const HW = 0.35, HH = 0.9; // half width and height of a runner, in tiles
+const newRunner = () => ({ x: 0, y: 0, vx: 0, vy: 0, f: 1, onGround: false, coyote: 0, buffer: 0, dead: false, deadAt: 0, done: false, doneAt: 0, coins: new Set(), deaths: 0, startAt: 0 });
+const solid = (c, r) => c < 0 || c >= COLS || (r >= 0 && r < ROWS && tileAt(c, r) === "#");
+const animOf = (b) => (b.dead ? 3 : b.done ? 4 : !b.onGround ? 2 : Math.abs(b.vx) > 0.5 ? 1 : 0);
+function touching(b, t, pad) { // does the runner overlap any `t` tile (shrunk by pad: [left, top, right, bottom])
+  for (let r = Math.floor(b.y - HH); r <= Math.floor(b.y - 0.01); r++) for (let c = Math.floor(b.x - HW); c <= Math.floor(b.x + HW); c++)
+    if (tileAt(c, r) === t && b.x + HW > c + pad[0] && b.x - HW < c + 1 - pad[2] && b.y > r + pad[1] && b.y - HH < r + 1 - pad[3]) return { c, r };
+  return null;
+}
+/** One physics step for a runner (yours or a bot's). input = { left, right, jump (pressed now), held }. */
+function stepRunner(b, input, dt) {
+  if (b.dead || b.done) { b.vx = 0; return; }
+  const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  b.vx += (dir * CONFIG.run - b.vx) * Math.min(1, (b.onGround ? 20 : 10) * dt);
+  if (dir) b.f = dir;
+  b.coyote = b.onGround ? CONFIG.coyote : b.coyote - dt;
+  b.buffer = input.jump ? CONFIG.buffer : b.buffer - dt;
+  if (b.buffer > 0 && b.coyote > 0) { b.vy = -CONFIG.jump; b.coyote = b.buffer = 0; }
+  b.vy = Math.min(CONFIG.maxFall, b.vy + CONFIG.gravity * (b.vy < 0 && !input.held ? 2.2 : 1) * dt); // let go early for a small hop
+  // move across, then up/down, stopping at blocks
+  b.x += b.vx * dt;
+  for (let r = Math.floor(b.y - HH + 0.01); r <= Math.floor(b.y - 0.01); r++) {
+    if (b.vx > 0 && solid(Math.floor(b.x + HW), r)) { b.x = Math.floor(b.x + HW) - HW - 0.001; b.vx = 0; }
+    if (b.vx < 0 && solid(Math.floor(b.x - HW), r)) { b.x = Math.floor(b.x - HW) + 1 + HW + 0.001; b.vx = 0; }
+  }
+  b.y += b.vy * dt; b.onGround = false;
+  for (let c = Math.floor(b.x - HW + 0.01); c <= Math.floor(b.x + HW - 0.01); c++) {
+    if (b.vy >= 0 && solid(c, Math.floor(b.y))) { b.y = Math.floor(b.y); b.vy = 0; b.onGround = true; }
+    if (b.vy < 0 && solid(c, Math.floor(b.y - HH))) { b.y = Math.floor(b.y - HH) + 1 + HH; b.vy = 0; }
+  }
+  for (let k = 0; k < 3 && solid(Math.floor(b.x), Math.floor(b.y - 0.5)); k++) b.y = Math.floor(b.y - 0.5); // a block painted onto you pushes you up
+  const coin = touching(b, "o", [0.2, 0.2, 0.2, 0.2]);
+  if (coin && !b.coins.has(coin.c + "," + coin.r)) { b.coins.add(coin.c + "," + coin.r); if (b === me) pop(coin.c + 0.5, coin.r + 0.5, "#ffd23f", 10); }
+  if (touching(b, "^", [0.15, 0.4, 0.15, 0]) || b.y > ROWS + 3) { b.dead = true; b.deadAt = performance.now(); b.deaths++; pop(b.x, b.y - 0.5, "#ff5a5f", 18); }
+  else if (touching(b, "G", [0, 0, 0, 0])) { b.done = true; b.doneAt = performance.now(); pop(b.x, b.y - 1, "#2fbf71", 24); }
+}
+
+// ── EDITOR ──────────────────────────────────────────────────────────────────────────
+let mode = ATTRACT ? "edit" : "play", tool = "#", edited = false;
+const paintQueue = []; let lastPaintSend = 0;
+function paint(c, r, t) {
+  if (c < 0 || r < 0 || c >= COLS || r >= ROWS || tileAt(c, r) === t) return;
+  edited = true;
+  if (isHost()) hostPaint(c, r, t); else { pending.set(c + "," + r, { t, at: performance.now() }); paintQueue.push([c, r, t]); }
+  pop(c + 0.5, r + 0.5, TILE_INK[t] || "#fff", 6);
+}
+function flushPaints(now) { // paints go out in batches, well under the message limit
+  if (paintQueue.length && now - lastPaintSend > 60) { lastPaintSend = now; net.send("paint", { cells: paintQueue.splice(0, 150) }); }
+  for (const [k, p] of pending) { const [c, r] = k.split(",").map(Number); if (now - p.at > 1500 || (rowsNow()[r] || "")[c] === p.t) pending.delete(k); }
+}
+function setMode(m) {
+  mode = m; $("palette").hidden = m !== "edit"; $("pad").hidden = m !== "play" || !touchUI;
+  $("modeBtn").innerHTML = m === "edit" ? '▶<span class="label"> Play</span>' : '✏️<span class="label"> Edit</span>';
+  if (m === "play") respawn();
+  hint(m === "play" ? "Arrows or A/D to run, Space to jump. Press ✏️ Edit to build." : "Pick a tile below and paint the level. Press ▶ Play to test it.");
+}
+
+// ── DRAW ────────────────────────────────────────────────────────────────────────────
+const cv = document.getElementById("game"), ctx = cv.getContext("2d");
+let W = 0, H = 0, DPR = 1, TS = 24;
+const cam = { x: 0, y: 0, ox: 0, oy: 0 };
+function fit() { DPR = Math.min(2, devicePixelRatio || 1); W = innerWidth; H = innerHeight; cv.width = W * DPR; cv.height = H * DPR; }
+addEventListener("resize", fit); addEventListener("orientationchange", fit); fit();
+const TILE_INK = { "#": "#8a5a3c", "^": "#cfd6e4", o: "#ffd23f", S: "#2fbf71", G: "#ff5a5f", ".": "#ffffff" };
+const parts = [];
+function pop(x, y, color, n) { for (let i = 0; i < n; i++) parts.push({ x, y, vx: (Math.random() - 0.5) * 8, vy: -Math.random() * 7, life: 0.6 + Math.random() * 0.4, color }); if (parts.length > 300) parts.splice(0, parts.length - 300); }
+/** Fit the camera: the whole level when editing (pan if it's too wide), close up and following when playing. */
+function placeCamera(focus, dt) {
+  const top = $("top").offsetHeight, bottom = mode === "edit" ? $("palette").offsetHeight : touchUI ? 110 : 8, h = H - top - bottom;
+  const close = mode === "play" || ATTRACT; // ?attract paints close up, following the brush
+  TS = ATTRACT ? h / 8.5 : close ? Math.max(20, Math.min(60, h / ROWS, W / 10)) : Math.max(touchUI ? 22 : 16, Math.min(44, W / COLS, h / ROWS));
+  const viewCols = W / TS, maxX = Math.max(0, COLS - viewCols);
+  if (close && focus) cam.x += (Math.min(maxX, Math.max(0, focus.x - viewCols / 2)) - cam.x) * Math.min(1, 6 * dt);
+  cam.x = Math.min(maxX, Math.max(0, cam.x));
+  cam.ox = COLS * TS < W ? (W - COLS * TS) / 2 : -cam.x * TS;
+  cam.oy = ATTRACT ? top + h - ROWS * TS : top + Math.max(0, (h - ROWS * TS) / 2); // ?attract shows the bottom rows only
+}
+const sx = (x) => cam.ox + x * TS, sy = (y) => cam.oy + y * TS;
+function drawSky(now) {
+  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#6cc4ff"); g.addColorStop(1, "#d8f2ff");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#ffffffcc";
+  for (let i = 0; i < 6; i++) { const x = ((i * 260 - cam.x * TS * 0.2 + now * 0.01) % (W + 300)) - 150, y = 60 + (i % 3) * 50; ctx.beginPath(); ctx.ellipse(x, y, 60, 18, 0, 0, 7); ctx.ellipse(x + 30, y - 10, 34, 18, 0, 0, 7); ctx.fill(); }
+  for (const [k, col, hgt] of [[0.3, "#9fdc8a", 0.32], [0.55, "#79c96b", 0.22]]) {
+    ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 20) ctx.lineTo(x, H - H * hgt - Math.sin((x + cam.x * TS * k) / 140) * 30 - Math.sin((x + cam.x * TS * k) / 57) * 12);
+    ctx.lineTo(W, H); ctx.fill();
+  }
+}
+function drawTile(t, c, r, now) {
+  const x = sx(c), y = sy(r), s = TS;
+  if (t === "#") {
+    ctx.fillStyle = "#8a5a3c"; ctx.fillRect(x, y, s + 0.5, s + 0.5);
+    ctx.fillStyle = "#9b6a48"; ctx.fillRect(x + s * 0.12, y + s * 0.3, s * 0.3, s * 0.18); ctx.fillRect(x + s * 0.55, y + s * 0.65, s * 0.3, s * 0.18);
+    if (tileAt(c, r - 1) !== "#") { ctx.fillStyle = "#4cc35a"; ctx.fillRect(x, y, s + 0.5, s * 0.26); ctx.fillStyle = "#6fdc7c"; ctx.fillRect(x, y, s + 0.5, s * 0.1); }
+  } else if (t === "^") {
+    ctx.fillStyle = "#dfe5ef"; ctx.strokeStyle = "#5a6478"; ctx.lineWidth = Math.max(1, s / 16);
+    for (const k of [0, 0.5]) { ctx.beginPath(); ctx.moveTo(x + s * k, y + s); ctx.lineTo(x + s * (k + 0.25), y + s * 0.35); ctx.lineTo(x + s * (k + 0.5), y + s); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+  } else if (t === "o") {
+    if (mode === "play" && me.coins.has(c + "," + r)) return;
+    const w = Math.abs(Math.sin(now / 300 + c * 0.7)) * 0.3 + 0.05;
+    ctx.fillStyle = "#ffd23f"; ctx.strokeStyle = "#c98a00"; ctx.lineWidth = Math.max(1, s / 14);
+    ctx.beginPath(); ctx.ellipse(x + s / 2, y + s / 2, s * w, s * 0.32, 0, 0, 7); ctx.fill(); ctx.stroke();
+  } else if (t === "S") {
+    ctx.fillStyle = mode === "edit" ? "#2fbf71" : "#2fbf7155"; ctx.beginPath(); ctx.roundRect(x + s * 0.1, y + s * 0.1, s * 0.8, s * 0.9, [s * 0.4, s * 0.4, 0, 0]); ctx.fill();
+    if (mode === "edit") { ctx.fillStyle = "#fff"; ctx.font = `800 ${s * 0.55}px system-ui`; ctx.textAlign = "center"; ctx.fillText("S", x + s / 2, y + s * 0.75); }
+  } else if (t === "G") {
+    ctx.fillStyle = "#3a3f55"; ctx.fillRect(x + s * 0.2, y - s * 0.6, s * 0.1, s * 1.6);
+    const wave = Math.sin(now / 200) * s * 0.08;
+    ctx.fillStyle = "#ff5a5f"; ctx.beginPath(); ctx.moveTo(x + s * 0.3, y - s * 0.6); ctx.lineTo(x + s * 0.95, y - s * 0.35 + wave); ctx.lineTo(x + s * 0.3, y - s * 0.05); ctx.fill();
+  }
+}
+function drawRunner(x, y, color, f, a, name, alpha, now) {
+  if (a === 3) return;
+  const w = HW * 2 * TS, h = HH * TS, bob = a === 1 ? Math.abs(Math.sin(now / 70)) * TS * 0.06 : a === 4 ? Math.abs(Math.sin(now / 120)) * TS * 0.3 : 0;
+  const px = sx(x) - w / 2, py = sy(y) - h - bob;
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color; ctx.beginPath(); ctx.roundRect(px, py, w, h, TS * 0.22); ctx.fill();
+  ctx.fillStyle = "#fff"; for (const k of [0.32, 0.68]) { ctx.beginPath(); ctx.arc(px + w * k + f * w * 0.08, py + h * 0.35, TS * 0.11, 0, 7); ctx.fill(); }
+  ctx.fillStyle = "#1d2340"; for (const k of [0.32, 0.68]) { ctx.beginPath(); ctx.arc(px + w * k + f * w * 0.14, py + h * 0.36, TS * 0.055, 0, 7); ctx.fill(); }
+  if (name && !ATTRACT) { ctx.font = `700 ${Math.max(11, TS * 0.36)}px system-ui`; ctx.textAlign = "center"; ctx.fillStyle = "#1d2340"; ctx.fillText(name, px + w / 2, py - 5); }
+  ctx.globalAlpha = 1;
+}
+function draw(now, dt) {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  drawSky(now);
+  ctx.fillStyle = mode === "edit" ? "#ffffff30" : "#ffffff00"; ctx.fillRect(sx(0), sy(0), COLS * TS, ROWS * TS);
+  if (mode === "edit") { // the grid
+    ctx.strokeStyle = "#1d234018"; ctx.lineWidth = 1; ctx.beginPath();
+    for (let c = 0; c <= COLS; c++) { ctx.moveTo(sx(c), sy(0)); ctx.lineTo(sx(c), sy(ROWS)); }
+    for (let r = 0; r <= ROWS; r++) { ctx.moveTo(sx(0), sy(r)); ctx.lineTo(sx(COLS), sy(r)); }
+    ctx.stroke();
+  }
+  const c0 = Math.max(0, Math.floor(-cam.ox / TS) - 1), c1 = Math.min(COLS, c0 + Math.ceil(W / TS) + 2);
+  for (let r = 0; r < ROWS; r++) for (let c = c0; c < c1; c++) { const t = tileAt(c, r); if (t !== ".") drawTile(t, c, r, now); }
+  ctx.fillStyle = "#6b4630"; ctx.fillRect(sx(0), sy(ROWS), COLS * TS, Math.max(0, H - sy(ROWS))); // under the level
+  // everyone else: runners when playing, cursors when editing
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    if (id === net.sessionId) continue;
+    const st = parse(p.p, null); if (!st) continue;
+    if (st.m === "p" && mode === "play" && st.k === meta()?.id) drawRunner(st.x, st.y, p.c || "#888", st.f || 1, st.a, p.n || "Player", 0.75, now);
+    if (st.m === "e" && mode === "edit") { ctx.strokeStyle = p.c || "#888"; ctx.lineWidth = 3; ctx.strokeRect(sx(st.cx), sy(st.cy), TS, TS); ctx.fillStyle = p.c || "#888"; ctx.font = "700 12px system-ui"; ctx.textAlign = "left"; ctx.fillText(p.n || "Player", sx(st.cx + 1) + 3, sy(st.cy) + 12); }
+  }
+  if (mode === "play") {
+    for (const b of botList()) drawRunner(b.x, b.y, b.c, b.f, b.a, b.n, 0.85, now);
+    drawRunner(me.x, me.y, myColor, me.f, animOf(me), "", 1, now);
+  } else if (hover) {
+    ctx.globalAlpha = 0.5; if (tool !== "move" && tool !== ".") drawTile(tool, hover.c, hover.r, now); ctx.globalAlpha = 1;
+    ctx.strokeStyle = "#1d2340"; ctx.lineWidth = 2; ctx.strokeRect(sx(hover.c), sy(hover.r), TS, TS);
+  }
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]; p.life -= dt; p.vy += 20 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.life <= 0) { parts.splice(i, 1); continue; }
+    ctx.fillStyle = p.color; ctx.globalAlpha = Math.min(1, p.life * 2); ctx.fillRect(sx(p.x) - TS * 0.08, sy(p.y) - TS * 0.08, TS * 0.16, TS * 0.16);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ── SAVES & SHARING ─────────────────────────────────────────────────────────────────
+let player = null; // MP.auth(...) when online: saves, sharing, leaderboards
+const store = {
+  async load() {
+    if (player) try { const d = await player.data.get(CONFIG.saveNs); return (d.data && d.data.drafts) || []; } catch {}
+    try { return JSON.parse(localStorage.getItem("level-maker.drafts")) || []; } catch { return []; }
+  },
+  async save(drafts) {
+    try { localStorage.setItem("level-maker.drafts", JSON.stringify(drafts)); } catch {}
+    if (player) { await player.data.get(CONFIG.saveNs).catch(() => null); await player.data.set({ drafts }, { namespace: CONFIG.saveNs }).catch(() => null); }
+  },
+};
+async function saveDraft(quiet) {
+  const m = meta(); if (!m) return;
+  edited = false;
+  const drafts = (await store.load()).filter((d) => d.k !== m.id);
+  drafts.unshift({ k: m.id, title: $("title").value || m.title, rows: rowsNow(), at: Date.now() });
+  await store.save(drafts.slice(0, CONFIG.maxDrafts));
+  if (!quiet) toast("Saved to your drafts");
+}
+const levels = () => player.content("levels");
+const boardFor = (src) => (player && src ? player.leaderboard(`${CONFIG.board}-${src}`) : null);
+function loadLevel(rows, title, src, then) { ask("load", { rows: cleanRows(rows), title, src }); closeDlg(); setTimeout(() => setMode(then), 150); }
+
+// ── SCREENS ─────────────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const fmt = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}.${String(Math.floor((ms % 1000) / 10)).padStart(2, "0")}`;
+let toastTimer = 0;
+function toast(t) { $("toast").textContent = t; $("toast").style.opacity = 1; clearTimeout(toastTimer); toastTimer = setTimeout(() => ($("toast").style.opacity = 0), 2200); }
+let hintTimer = 0;
+function hint(t) { $("hint").textContent = ATTRACT ? "" : t; $("hint").style.opacity = 1; clearTimeout(hintTimer); hintTimer = setTimeout(() => ($("hint").style.opacity = 0), 5000); }
+function openDlg(html) { $("card").innerHTML = html; $("dlg").hidden = false; }
+function closeDlg() { $("dlg").hidden = true; }
+$("dlg").addEventListener("pointerdown", (e) => { if (e.target === $("dlg")) closeDlg(); });
+$("palette").innerHTML = TOOLS.map(([t, icon, label]) => `<button data-t="${t}" title="${label}" aria-label="${label}">${icon}</button>`).join("");
+for (const b of $("palette").children) b.onclick = () => { tool = b.dataset.t; paletteUI(); };
+function paletteUI() { for (const b of $("palette").children) b.classList.toggle("on", b.dataset.t === tool); }
+$("modeBtn").onclick = () => setMode(mode === "edit" ? "play" : "edit");
+$("saveBtn").onclick = () => saveDraft(false);
+$("title").addEventListener("change", () => ask("meta", { title: $("title").value.trim().slice(0, 40) || "Untitled" }));
+$("levelsBtn").onclick = () => showLevels("examples");
+
+async function showLevels(tab) {
+  const tabs = [["examples", "Examples"], ["drafts", "My drafts"], ["top", "Top"], ["new", "New"]];
+  const head = `<h2>Levels</h2><div class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? "on" : ""}">${l}</button>`).join("")}</div><div id="list">Loading…</div><div class="row"><button id="blank">New empty level</button><button id="close">Close</button></div>`;
+  openDlg(head);
+  for (const b of document.querySelectorAll("[data-tab]")) b.onclick = () => showLevels(b.dataset.tab);
+  $("close").onclick = closeDlg;
+  $("blank").onclick = () => loadLevel([...Array(ROWS - 2).fill(""), "#".repeat(COLS), "#".repeat(COLS)], "Untitled", "", "edit");
+  const list = $("list"), row = (title, sub, buttons) => `<div class="item"><div><b>${esc(title)}</b><small>${esc(sub)}</small></div>${buttons}</div>`;
+  if (tab === "examples") {
+    list.innerHTML = EXAMPLES.map((e, i) => row(e.title, "Built in", `<button data-play="${i}">Play</button><button data-edit="${i}">Edit</button>`)).join("");
+    list.onclick = (e) => { const i = e.target.dataset.play ?? e.target.dataset.edit; if (i !== undefined) loadLevel(EXAMPLES[i].rows, EXAMPLES[i].title, EXAMPLES[i].id, e.target.dataset.play !== undefined ? "play" : "edit"); };
+  } else if (tab === "drafts") {
+    const drafts = await store.load();
+    list.innerHTML = drafts.length ? drafts.map((d, i) => row(d.title, new Date(d.at).toLocaleString(), `<button data-play="${i}">Play</button><button data-edit="${i}">Edit</button><button data-del="${i}" aria-label="Delete">🗑</button>`)).join("") : "<p>No drafts yet. Press 💾 Save while you build, or just build: drafts save themselves.</p>";
+    list.onclick = async (e) => {
+      const { play, edit, del } = e.target.dataset;
+      if (del !== undefined) { drafts.splice(+del, 1); await store.save(drafts); showLevels("drafts"); return; }
+      const d = drafts[play ?? edit]; if (d) loadLevel(d.rows, d.title, "", play !== undefined ? "play" : "edit");
+    };
+  } else {
+    if (!player) { list.innerHTML = "<p>Shared levels need a connection. Examples and drafts work offline.</p>"; return; }
+    try {
+      const { items } = await levels().list({ sort: tab, limit: 20 });
+      list.innerHTML = items.length ? items.map((it) => row(it.title, `by ${it.authorName || "someone"} · 👍 ${it.votes}`, `<button data-play="${it.id}">Play</button><button data-vote="${it.id}" aria-label="Like">${it.voted ? "💚" : "👍"}</button><button data-report="${it.id}" aria-label="Report">⚑</button>`)).join("") : "<p>No shared levels yet. Build one and press 🔗 Share!</p>";
+      list.onclick = (e) => {
+        const { play, vote, report } = e.target.dataset;
+        if (play) levels().get(play).then((it) => loadLevel(it.data && it.data.rows, it.title + (it.authorName ? " by " + it.authorName : ""), it.id, "play")).catch(() => toast("Couldn't open that level"));
+        if (vote) levels().vote(vote).then(() => { e.target.textContent = "💚"; toast("Liked!"); }).catch(() => toast("Couldn't vote"));
+        if (report && confirm("Report this level to the game's owner?")) levels().report(report, "Reported from the game").then(() => toast("Reported. Thanks!")).catch(() => toast("Couldn't report"));
+      };
+    } catch { list.innerHTML = "<p>Couldn't load shared levels right now.</p>"; }
+  }
+}
+
+$("shareBtn").onclick = showShare;
+async function showShare() {
+  if (!player) return openDlg(`<h2>Share this level</h2><p>Sharing needs a connection. Your drafts still save on this device.</p><div class="row"><button onclick="closeDlg()">OK</button></div>`);
+  if (!findTile("G")) return openDlg(`<h2>Add a goal first</h2><p>Put a ⚑ goal in the level so people can finish it.</p><div class="row"><button onclick="closeDlg()">OK</button></div>`);
+  let me_ = null; try { me_ = await player.getPlayer(); } catch {}
+  if (!me_ || !me_.claimed) {
+    openDlg(`<h2>Pick a player name</h2><p>Publishing needs a name and password, so the level stays yours and you can log in on another device.</p>
+      <input class="field" id="cName" placeholder="Name" maxlength="24" autocomplete="username"><input class="field" id="cPass" type="password" placeholder="Password (8+ characters)" autocomplete="new-password">
+      <div class="err" id="cErr"></div><div class="row"><button onclick="closeDlg()">Cancel</button><button class="primary" id="cGo">Claim name</button></div>`);
+    $("cGo").onclick = () => player.claim($("cName").value.trim(), $("cPass").value).then(showShare).catch((e) => ($("cErr").textContent = (e && e.message) || "That didn't work. Try another name."));
+    return;
+  }
+  openDlg(`<h2>Share this level</h2><p>Publishing as <b>${esc(me_.username)}</b>. Anyone with the game can find it under Levels, play it and like it.</p>
+    <input class="field" id="pTitle" maxlength="40" value="${esc($("title").value || "My level")}"><div class="err" id="pErr"></div>
+    <div class="row"><button onclick="closeDlg()">Cancel</button><button class="primary" id="pGo">Publish</button></div>`);
+  $("pGo").onclick = () => {
+    const title = $("pTitle").value.trim() || "My level", rows = rowsNow();
+    levels().publish({ title, data: { rows }, meta: { coins: rows.join("").split("o").length - 1 } }).then(({ id }) => {
+      ask("meta", { title, src: id });
+      const link = location.origin + location.pathname + "?level=" + id;
+      openDlg(`<h2>Published! 🎉</h2><p>Send this link. Friends who open it play your level together:</p><input class="field" id="pLink" readonly value="${esc(link)}"><div class="row"><button onclick="closeDlg()">Done</button><button class="primary" id="pCopy">Copy link</button></div>`);
+      $("pCopy").onclick = () => { navigator.clipboard?.writeText(link).then(() => toast("Link copied")).catch(() => $("pLink").select()); };
+    }).catch((e) => ($("pErr").textContent = (e && e.message) || "Couldn't publish right now."));
+  };
+}
+
+function showDone() {
+  const m = meta() || {}, total = rowsNow().join("").split("o").length - 1, ms = me.doneAt - me.startAt, board = boardFor(m.src), shared_ = m.src && !/^ex\d$/.test(m.src);
+  openDlg(`<h2>Level clear! 🎉</h2><p><b>${fmt(ms)}</b> · coins ${me.coins.size}/${total} · falls ${me.deaths}</p>
+    <h3>Fastest on this level</h3><ol id="board"><li>${board ? "Loading…" : player ? "Publish this level to give it a leaderboard." : "Leaderboards need a connection."}</li></ol>
+    <div class="row">${shared_ ? '<button id="dLike">👍 Like</button>' : ""}<button id="dEdit">✏️ Edit</button><button class="primary" id="dAgain">Play again</button></div>`);
+  $("dAgain").onclick = () => { closeDlg(); respawn(); };
+  $("dEdit").onclick = () => { closeDlg(); setMode("edit"); };
+  if (shared_) $("dLike").onclick = () => levels().vote(m.src).then(() => { $("dLike").textContent = "💚 Liked"; }).catch(() => toast("Couldn't vote"));
+  if (board) board.submit(Math.max(0, 600000 - ms)).catch(() => null).then(() => board.top(10)).then(({ entries }) => {
+    $("board").innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${fmt(600000 - e.score)}</span></li>`).join("") : "<li>No times yet.</li>";
+  }).catch(() => { if ($("board")) $("board").innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+}
+
+// ── INPUT & LOOP ────────────────────────────────────────────────────────────────────
+const touchUI = matchMedia("(pointer: coarse)").matches && !ATTRACT;
+const keys = new Set(), padKeys = new Set();
+let jumpPressed = false, hover = null, drag = null;
+addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  const k = e.key.toLowerCase(); if (!keys.has(k) && (k === " " || k === "arrowup" || k === "w")) jumpPressed = true;
+  keys.add(k); if (k === " " || k.startsWith("arrow")) e.preventDefault();
+  if (k === "e" && mode === "play") setMode("edit"); else if (k === "p" && mode === "edit") setMode("play");
+});
+addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+const cellAt = (e) => ({ c: Math.floor((e.clientX - cam.ox) / TS), r: Math.floor((e.clientY - cam.oy) / TS) });
+cv.addEventListener("pointerdown", (e) => {
+  if (mode !== "edit") return;
+  e.preventDefault(); cv.setPointerCapture(e.pointerId);
+  const pan = tool === "move" || e.button === 2;
+  drag = { pan, x: e.clientX, camX: cam.x, last: cellAt(e) };
+  if (!pan) paint(drag.last.c, drag.last.r, tool);
+});
+cv.addEventListener("pointermove", (e) => {
+  if (mode !== "edit") return;
+  hover = e.pointerType === "mouse" ? cellAt(e) : null;
+  if (!drag) return;
+  if (drag.pan) { cam.x = drag.camX - (e.clientX - drag.x) / TS; return; }
+  const to = cellAt(e), n = Math.max(Math.abs(to.c - drag.last.c), Math.abs(to.r - drag.last.r));
+  for (let i = 1; i <= n; i++) paint(Math.round(drag.last.c + ((to.c - drag.last.c) * i) / n), Math.round(drag.last.r + ((to.r - drag.last.r) * i) / n), tool);
+  drag.last = to;
+});
+for (const ev of ["pointerup", "pointercancel"]) cv.addEventListener(ev, () => (drag = null));
+cv.addEventListener("contextmenu", (e) => e.preventDefault());
+cv.addEventListener("wheel", (e) => { if (mode === "edit") { cam.x += (e.deltaX || e.deltaY) / TS; e.preventDefault(); } }, { passive: false });
+for (const b of document.querySelectorAll("#pad button")) {
+  const k = b.dataset.k;
+  b.addEventListener("pointerdown", (e) => { e.preventDefault(); b.setPointerCapture(e.pointerId); padKeys.add(k); if (k === "jump") jumpPressed = true; b.classList.add("on"); });
+  for (const ev of ["pointerup", "pointercancel"]) b.addEventListener(ev, () => { padKeys.delete(k); b.classList.remove("on"); });
+}
+document.addEventListener("touchmove", (e) => { if (e.target === cv || e.target.closest("#pad")) e.preventDefault(); }, { passive: false });
+
+let myName = "", myColor = COLORS[0]; // the color is picked on join: the first one nobody has
+try { myName = localStorage.getItem("mpa-name") || ""; } catch {}
+if (!myName) myName = ["Builder", "Maker", "Jumper", "Sketch", "Pixel", "Blocky"][Math.floor(Math.random() * 6)] + " " + (10 + Math.floor(Math.random() * 90));
+const me = { ...newRunner(), lv: "", lastSend: 0 };
+const modeOf = (id) => (id === net.sessionId ? (mode === "play" ? "play" : "edit") : parse(S.entities.players[id]?.p, {}).m === "p" ? "play" : "edit");
+function respawn() { const lv = me.lv; Object.assign(me, newRunner(), startPos(), { lv, startAt: performance.now() }); closeDlg(); }
+function myTick(dt, now) {
+  const m = meta(); if (!m) return;
+  if (me.lv !== m.id) { me.lv = m.id; pending.clear(); if (mode === "play") respawn(); }
+  if (document.activeElement !== $("title")) $("title").value = m.title;
+  if (mode === "play") {
+    const input = ATTRACT ? botInput(me, dt) : { left: keys.has("arrowleft") || keys.has("a") || padKeys.has("left"), right: keys.has("arrowright") || keys.has("d") || padKeys.has("right"), jump: jumpPressed, held: keys.has(" ") || keys.has("arrowup") || keys.has("w") || padKeys.has("jump") };
+    const wasDone = me.done;
+    stepRunner(me, input, dt);
+    if (me.dead && now > me.deadAt + 600) { const { deaths, startAt, coins } = me; Object.assign(me, newRunner(), startPos(), { deaths, startAt, coins }); }
+    if (me.done && !wasDone) { if (ATTRACT) setTimeout(respawn, 1500); else setTimeout(showDone, 600); }
+  }
+  jumpPressed = false;
+  if (now - me.lastSend > CONFIG.sendMs) {
+    me.lastSend = now;
+    net.me.set("p", JSON.stringify(mode === "play" ? { m: "p", k: m.id, x: +me.x.toFixed(2), y: +me.y.toFixed(2), f: me.f, a: animOf(me) } : { m: "e", cx: hover ? hover.c : drag && drag.last ? drag.last.c : -9, cy: hover ? hover.r : drag && drag.last ? drag.last.r : -9 }));
+  }
+}
+function hud() {
+  if (ATTRACT) { $("hud").textContent = $("net").textContent = ""; return; }
+  const total = rowsNow().join("").split("o").length - 1;
+  $("hud").textContent = mode === "play" ? `⏱ ${fmt(me.done ? me.doneAt - me.startAt : performance.now() - me.startAt)}   ● ${me.coins.size}/${total}` : "";
+  const n = livePlayers().length;
+  $("net").textContent = net.offline ? "Offline: playing with bots" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the level" : ""}`;
+}
+
+// ?attract: paint a little course on flat ground, then the bots run it.
+const ATTRACT_BASE = [...Array(ROWS - 3).fill(""), ".S.................................G..", "#".repeat(COLS), "#".repeat(COLS)];
+const ATTRACT_PLAN = [[6, 11, "#"], [7, 11, "#"], [7, 10, "#"], [8, 11, "#"], [8, 10, "#"], [8, 9, "#"], [9, 7, "o"], [10, 7, "o"], [12, 11, "^"], [13, 11, "^"], [17, 10, "#"], [18, 10, "#"], [19, 10, "#"], [20, 10, "#"], [17, 9, "o"], [18, 9, "o"], [19, 9, "o"], [20, 9, "o"],
+  [24, 11, "^"], [25, 11, "^"], [29, 10, "#"], [30, 10, "#"], [31, 10, "#"], [29, 9, "o"], [31, 9, "o"]];
+const attract = { step: 0, next: Infinity }; // starts 1.5s after the first frame
+function attractTick(now) {
+  while (attract.step < ATTRACT_PLAN.length && now > attract.next) { // keeps pace even when frames are slow
+    const [c, r, t] = ATTRACT_PLAN[attract.step++]; tool = t; paletteUI(); hover = { c, r }; paint(c, r, t); attract.next += 140;
+    if (attract.step === ATTRACT_PLAN.length) setTimeout(() => setMode("play"), 700);
+  }
+}
+
+let last = performance.now(), lastHb = 0, lastHud = 0, lastAutosave = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); }
+  refreshRows();
+  if (isHost()) hostTick(dt, now); else host.wasHost = false;
+  if (ATTRACT) attractTick(now);
+  flushPaints(now);
+  myTick(dt, now);
+  const lead = !ATTRACT ? me : mode === "play" ? [me, ...botList()].filter((b) => !b.dead).sort((a, b) => b.x - a.x)[0] : hover && { x: hover.c + 4 };
+  placeCamera(lead, dt);
+  draw(now, dt);
+  if (now - lastHud > 150) { lastHud = now; hud(); }
+  if (edited && now - lastAutosave > CONFIG.autosaveMs && !ATTRACT) { lastAutosave = now; saveDraft(true); }
+  requestAnimationFrame(frame);
+}
+
+(async function start() {
+  net = await connect();
+  net.onState((st) => { S = st; });
+  for (const type of ["paint", "load", "meta"]) net.on(type, (m) => { if (isHost()) applyIntent(type, m); });
+  net.onDisconnect(() => { $("net").textContent = "Reconnecting…"; });
+  if (!net.offline && typeof MP !== "undefined") player = MP.auth({ key: MP_CONNECT.key, apiUrl: MP_CONNECT.apiUrl });
+  const taken = new Set(Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.c));
+  myColor = COLORS.find((c) => !taken.has(c)) || COLORS[Math.floor(Math.random() * COLORS.length)];
+  net.me.set({ n: myName, c: myColor, hb: Date.now() });
+  addEventListener("pagehide", () => { if (edited) saveDraft(true); });
+  if (ATTRACT) { $("top").style.visibility = "hidden"; }
+  paletteUI(); setMode(mode);
+  attract.next = performance.now() + 1500;
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "Level Maker",
+  "genre": "platformer",
+  "dim": "2D",
+  "mode": "Co-op",
+  "players": "1–8",
+  "hook": "Build a level, share it, play your friends’ levels.",
+  "how": "Paint blocks, spikes, coins, a start and a goal on the grid, together with everyone in the room. Press Play to run it against the bots, then share it so other players can play it and like it.",
+  "controls": "Mouse or touch to build; arrow keys or A/D and Space, or on-screen buttons, to play",
+  "uses": [
+    ["Level sharing", "Publish your level; others browse the top and newest, play, like and report them. A link opens one for friends."],
+    ["Saves", "Your unfinished levels are kept as drafts in your player save."],
+    ["Live sync", "Everyone in the room builds the same level and sees each other play it."],
+    ["Bots", "Bots run the level when you press Play."],
+    ["Leaderboard", "The fastest clear of each shared level."],
+    ["Player logins", "Pick a name and password to publish levels and keep them yours."]
+  ],
+  "ideas": [
+    "Add springs and moving platforms",
+    "Feature one level each week",
+    "Add a lava tile that rises slowly"
+  ]
+}
