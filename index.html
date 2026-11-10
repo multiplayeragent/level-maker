@@ -229,7 +229,7 @@ function hostPaint(c, r, t) {
   host.rows[r] = host.rows[r].slice(0, c) + t + host.rows[r].slice(c + 1); host.dirty.add(r);
 }
 function hostTick(dt, now) {
-  if (!host.wasHost) { host.wasHost = true; host.rows = meta() ? sharedRows().map((row) => row.padEnd(COLS, ".").slice(0, COLS)) : null; refreshRows(); host.bots.clear(); for (const b of shared("bots", [])) host.bots.set(b.i, { ...newRunner(), id: b.i, name: b.n, color: b.c, x: b.x, y: b.y }); }
+  if (!host.wasHost) { host.wasHost = true; host.rows = meta() ? sharedRows().map((row) => row.padEnd(COLS, ".").slice(0, COLS)) : null; refreshRows(); host.bots.clear(); for (const b of shared("bots", [])) host.bots.set(b.i, { ...newRunner(), id: b.i, name: b.n, color: b.c, x: b.x, y: b.y, lv: meta()?.id }); } // lv: carry on from here, not back to the start
   if (!meta() && !host.fetching) { // a brand-new room: the linked level, or the first example
     if (LINKED && player) { host.fetching = true; player.content("levels").get(LINKED).then((it) => hostLoad(it.data && it.data.rows, it.title + (it.authorName ? " by " + it.authorName : ""), it.id)).catch(() => { toast("Couldn't open that level"); hostLoad(EXAMPLES[0].rows, EXAMPLES[0].title, EXAMPLES[0].id); }); }
     else hostLoad(ATTRACT ? ATTRACT_BASE : EXAMPLES[0].rows, ATTRACT ? "My Level" : EXAMPLES[0].title, ATTRACT ? "" : EXAMPLES[0].id);
@@ -422,8 +422,9 @@ function draw(now, dt) {
   for (let r = 0; r < ROWS; r++) for (let c = c0; c < c1; c++) { const t = tileAt(c, r); if (t !== ".") drawTile(t, c, r, now); }
   ctx.fillStyle = "#6b4630"; ctx.fillRect(sx(0), sy(ROWS), COLS * TS, Math.max(0, H - sy(ROWS))); // under the level
   // everyone else: runners when playing, cursors when editing
-  for (const [id, p] of Object.entries(S.entities.players || {})) {
-    if (id === net.sessionId) continue;
+  for (const id of livePlayers()) { // live players only: a closed tab's entity lingers ~30s
+    const p = S.entities.players[id];
+    if (id === net.sessionId || !p) continue;
     const st = parse(p.p, null); if (!st) continue;
     if (st.m === "p" && mode === "play" && st.k === meta()?.id) drawRunner(st.x, st.y, p.c || "#888", st.f || 1, st.a, p.n || "Player", 0.75, now);
     if (st.m === "e" && mode === "edit") { ctx.strokeStyle = p.c || "#888"; ctx.lineWidth = 3; ctx.strokeRect(sx(st.cx), sy(st.cy), TS, TS); ctx.fillStyle = p.c || "#888"; ctx.font = "700 12px system-ui"; ctx.textAlign = "left"; ctx.fillText(p.n || "Player", sx(st.cx + 1) + 3, sy(st.cy) + 12); }
@@ -602,6 +603,13 @@ try { myName = localStorage.getItem("mpa-name") || ""; } catch {}
 if (!myName) myName = ["Builder", "Maker", "Jumper", "Sketch", "Pixel", "Blocky"][Math.floor(Math.random() * 6)] + " " + (10 + Math.floor(Math.random() * 90));
 const me = { ...newRunner(), lv: "", lastSend: 0 };
 const modeOf = (id) => (id === net.sessionId ? (mode === "play" ? "play" : "edit") : parse(S.entities.players[id]?.p, {}).m === "p" ? "play" : "edit");
+/** Two people joined at once with one color (or a bot has it): the one with the higher sessionId picks a free one. */
+function fixColor() {
+  const others = Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId), bots = botList();
+  if (!others.some(([id, p]) => p.c === myColor && id < net.sessionId) && !bots.some((b) => b.c === myColor)) return;
+  const taken = new Set([...others.map(([, p]) => p.c), ...bots.map((b) => b.c)]);
+  myColor = COLORS.find((c) => !taken.has(c)) || myColor; net.me.set("c", myColor);
+}
 function respawn() { const lv = me.lv; Object.assign(me, newRunner(), startPos(), { lv, startAt: performance.now() }); closeDlg(); }
 function myTick(dt, now) {
   const m = meta(); if (!m) return;
@@ -620,12 +628,13 @@ function myTick(dt, now) {
     net.me.set("p", JSON.stringify(mode === "play" ? { m: "p", k: m.id, x: +me.x.toFixed(2), y: +me.y.toFixed(2), f: me.f, a: animOf(me) } : { m: "e", cx: hover ? hover.c : drag && drag.last ? drag.last.c : -9, cy: hover ? hover.r : drag && drag.last ? drag.last.r : -9 }));
   }
 }
+let dropped = false; // true while the connection is down: the HUD keeps showing "Reconnecting…"
 function hud() {
   if (ATTRACT) { $("hud").textContent = $("net").textContent = ""; return; }
   const total = rowsNow().join("").split("o").length - 1;
   $("hud").textContent = mode === "play" ? `⏱ ${fmt(me.done ? me.doneAt - me.startAt : performance.now() - me.startAt)}   ● ${me.coins.size}/${total}` : "";
   const n = livePlayers().length;
-  $("net").textContent = net.offline ? "Offline: playing with bots" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the level" : ""}`;
+  $("net").textContent = net.offline ? "Offline: playing with bots" : dropped ? "Reconnecting…" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the level" : ""}`;
 }
 
 // ?attract: paint a little course on flat ground, then the bots run it.
@@ -642,8 +651,8 @@ function attractTick(now) {
 
 let last = performance.now(), lastHb = 0, lastHud = 0, lastAutosave = 0;
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); }
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; // never negative: the first frame can be stamped before `last`
+  if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); fixColor(); }
   refreshRows();
   if (isHost()) hostTick(dt, now); else host.wasHost = false;
   if (ATTRACT) attractTick(now);
@@ -661,9 +670,10 @@ function frame(now) {
   net = await connect();
   net.onState((st) => { S = st; });
   for (const type of ["paint", "load", "meta"]) net.on(type, (m) => { if (isHost()) applyIntent(type, m); });
-  net.onDisconnect(() => { $("net").textContent = "Reconnecting…"; });
+  net.onDisconnect(() => { dropped = true; $("net").textContent = "Reconnecting…"; });
+  net.onReconnect(() => { dropped = false; });
   if (!net.offline && typeof MP !== "undefined") player = MP.auth({ key: MP_CONNECT.key, apiUrl: MP_CONNECT.apiUrl });
-  const taken = new Set(Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.c));
+  const taken = new Set([...Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.c), ...botList().map((b) => b.c)]);
   myColor = COLORS.find((c) => !taken.has(c)) || COLORS[Math.floor(Math.random() * COLORS.length)];
   net.me.set({ n: myName, c: myColor, hb: Date.now() });
   addEventListener("pagehide", () => { if (edited) saveDraft(true); });
